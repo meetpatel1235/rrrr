@@ -1,18 +1,30 @@
-const express = require('express');
-const router = express.Router();
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
 
-// Dummy login route (you will improve this later)
-router.post('/login', (req, res) => {
-  const { email, password } = req.body;
+const auth = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No authentication token provided' });
+    }
 
-  // You can later verify email/password from MongoDB
-  if (
-    (email === 'admin@rasoi.com' && password === 'admin123') ||
-    (email === 'worker@rasoi.com' && password === 'worker123')
-  ) {
-    return res.status(200).json({ message: 'Login successful', token: 'fake-jwt-token' });
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret_key');
+      req.user = {
+        userId: decoded.userId,
+        role: decoded.role
+      };
+      console.log('Auth middleware - User authenticated:', req.user);
+      next();
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ error: 'Server error in authentication' });
   }
-  
-});
+};
 
-module.exports = router;
+module.exports = auth; 

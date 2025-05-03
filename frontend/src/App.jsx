@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -24,36 +23,26 @@ function App() {
       <Toaster position="top-right" richColors />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" />} />
+          {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           
-          <Route path="/" element={<Layout />}>
-            <Route path="dashboard" element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            } />
+          {/* Protected routes */}
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/invoices" element={<Invoices />} />
             <Route 
-              path="inventory" 
+              path="/inventory" 
               element={
                 <ProtectedRoute requireAdmin={true}>
                   <Inventory />
                 </ProtectedRoute>
               } 
             />
-            <Route path="orders" element={
-              <ProtectedRoute>
-                <Orders />
-              </ProtectedRoute>
-            } />
-            <Route path="invoices" element={
-              <ProtectedRoute>
-                <Invoices />
-              </ProtectedRoute>
-            } />
             <Route 
-              path="users" 
+              path="/users" 
               element={
                 <ProtectedRoute requireAdmin={true}>
                   <Users />

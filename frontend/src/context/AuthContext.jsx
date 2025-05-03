@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { toast } from 'sonner';
 
@@ -15,13 +14,28 @@ export const AuthProvider = ({ children }) => {
 
   // Check if user is logged in on initial load
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
-    
-    if (storedUser && token) {
-      setUser(JSON.parse(storedUser));
+    try {
+      const storedUser = localStorage.getItem('user');
+      const token = localStorage.getItem('token');
+      
+      if (storedUser && token) {
+        const parsedUser = JSON.parse(storedUser);
+        if (parsedUser && typeof parsedUser === 'object') {
+          setUser(parsedUser);
+        } else {
+          // If stored user data is invalid, clear it
+          localStorage.removeItem('user');
+          localStorage.removeItem('token');
+        }
+      }
+    } catch (error) {
+      // If there's any error parsing the stored data, clear it
+      console.error('Error parsing stored user data:', error);
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   // Login function
@@ -30,7 +44,7 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
       setLoading(true);
       
-      const response = await fetch('/api/login', {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -39,18 +53,40 @@ export const AuthProvider = ({ children }) => {
       });
       
       const data = await response.json();
+      console.log('AuthContext login response:', data); // Add this for debugging
       
       if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
+        throw new Error(data.message || 'Login failed. Please check your credentials.');
       }
+
+      // Validate server response
+      if (!data.token) {
+        throw new Error("Server response missing authentication token");
+      }
+
+      // Create user object from the response data
+      const userData = {
+        id: data.userId || 'temp-id', // You might want to decode the JWT to get the actual userId
+        email: email,
+        role: data.role
+      };
       
+      // Store token and user data
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('user', JSON.stringify(userData));
       
-      setUser(data.user);
-      toast.success('Login successful!');
-      return data;
+      // Update user state
+      setUser(userData);
+      
+      // Return a promise that resolves after state is updated
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          toast.success('Login successful! Redirecting to dashboard...');
+          resolve(data);
+        }, 100);
+      });
     } catch (error) {
+      console.error('AuthContext login error:', error); // Add this for debugging
       setAuthError(error.message);
       toast.error(error.message);
       throw error;

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
@@ -48,32 +47,128 @@ const Orders = () => {
   const [formData, setFormData] = useState({
     customerName: '',
     customerPhone: '',
+    customerAddress: '',
     eventDate: '',
     returnDate: '',
     totalAmount: 0
   });
 
-  // Fetch orders and inventory data
+  // Fetch orders on component mount
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchOrders = async () => {
       try {
         setLoading(true);
-        const [ordersData, inventoryData] = await Promise.all([
-          getOrders(),
-          getInventory()
-        ]);
-        setOrders(ordersData);
-        setInventory(inventoryData);
+        const data = await getOrders();
+        console.log('Fetched orders:', data);
+        
+        // Format the orders data
+        const formattedOrders = data.map(order => ({
+          ...order,
+          orderNumber: order.orderNumber || `ORD${order._id.slice(-4)}`,
+          customerName: order.customerName || 'N/A',
+          contactPerson: order.contactPerson || order.customerName || 'N/A',
+          phone: order.phone || 'N/A',
+          eventDate: order.eventDate || new Date(),
+          returnDate: order.returnDate || new Date(),
+          items: order.items.map(item => ({
+            ...item,
+            item: item.item || {
+              _id: 'unknown',
+              name: 'Unknown Item',
+              nameGujarati: '',
+              price: 0
+            },
+            quantity: item.quantity || 0,
+            rate: item.rate || 0
+          })),
+          totalAmount: order.totalAmount || 0,
+          status: order.status || 'upcoming',
+          paidAmount: order.paidAmount || 0
+        }));
+        
+        setOrders(formattedOrders);
       } catch (error) {
-        console.error('Error fetching data:', error);
-        toast.error('Failed to load data');
+        console.error('Error fetching orders:', error);
+        toast.error('Failed to fetch orders');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    fetchOrders();
   }, []);
+
+  // Fetch inventory items on component mount
+  useEffect(() => {
+    const fetchInventory = async () => {
+      try {
+        const data = await getInventory();
+        setInventory(data);
+      } catch (error) {
+        console.error('Error fetching inventory:', error);
+        toast.error('Failed to fetch inventory items');
+      }
+    };
+
+    fetchInventory();
+  }, []);
+
+  // Filter orders based on status
+  const filteredOrders = orders.filter(order => {
+    if (activeTab === 'all') return true;
+    return order.status === activeTab;
+  });
+
+  // Render order items
+  const renderOrderItems = (items) => {
+    if (!items || items.length === 0) return null;
+    
+    return items.map((item, index) => (
+      <div key={index} className="text-sm text-gray-600">
+        {item.item?.name || 'Unknown Item'} - {item.quantity || 0} x ₹{item.rate || 0}
+      </div>
+    ));
+  };
+
+  // Format date for display
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Not set';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      
+      // Format date in DD/MM/YYYY format
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      
+      return `${day}/${month}/${year}`;
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid Date';
+    }
+  };
+
+  // Format currency
+  const formatCurrency = (amount) => {
+    if (amount === undefined || amount === null || isNaN(amount)) return '₹0';
+    return `₹${Number(amount).toFixed(2)}`;
+  };
+
+  // Render order status badge
+  const renderStatusBadge = (status) => {
+    const statusColors = {
+      upcoming: 'bg-blue-100 text-blue-800',
+      pending: 'bg-yellow-100 text-yellow-800',
+      completed: 'bg-green-100 text-green-800'
+    };
+
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </span>
+    );
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -136,20 +231,143 @@ const Orders = () => {
 
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    
+
+    // Validate items
     if (orderItems.some(item => !item.item)) {
       toast.error('Please select all items');
       return;
     }
-    
+
+    // Validate dates
+    if (!formData.eventDate || !formData.returnDate) {
+      toast.error('Please select both event and return dates');
+      return;
+    }
+
+    // Validate customer information
+    if (!formData.customerName || !formData.customerPhone || !formData.customerAddress) {
+      toast.error('Please fill in all customer information');
+      return;
+    }
+
+    // Validate phone number format
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(formData.customerPhone)) {
+      toast.error('Please enter a valid 10-digit phone number');
+      return;
+    }
+
     try {
+      // Format dates to ISO string
+      const eventDate = new Date(formData.eventDate).toISOString();
+      const returnDate = new Date(formData.returnDate).toISOString();
+
+      // Validate date logic
+      if (new Date(eventDate) < new Date()) {
+        toast.error('Event date cannot be in the past');
+        return;
+      }
+      if (new Date(returnDate) < new Date(eventDate)) {
+        toast.error('Return date must be after event date');
+        return;
+      }
+
+      // Get item details from inventory and validate rates
+      const itemsWithDetails = orderItems.map(item => {
+        const inventoryItem = inventory.find(inv => inv._id === item.item);
+        if (!inventoryItem) {
+          throw new Error('Selected item not found in inventory');
+        }
+        if (!inventoryItem.price || inventoryItem.price <= 0) {
+          throw new Error(`Invalid price for item: ${inventoryItem.name}`);
+        }
+        return {
+          item: item.item,
+          itemName: inventoryItem.name,
+          itemNameGujarati: inventoryItem.nameGujarati || '',
+          quantity: parseInt(item.quantity, 10),
+          rate: parseFloat(inventoryItem.price)
+        };
+      });
+
+      // Calculate total amount
+      const totalAmount = itemsWithDetails.reduce((sum, item) => {
+        const itemTotal = item.quantity * item.rate;
+        if (isNaN(itemTotal)) {
+          throw new Error(`Invalid calculation for item: ${item.itemName}`);
+        }
+        return sum + itemTotal;
+      }, 0);
+
+      if (isNaN(totalAmount) || totalAmount <= 0) {
+        throw new Error('Invalid total amount calculated');
+      }
+
       const orderData = {
-        ...formData,
-        items: orderItems,
+        customerName: formData.customerName.trim(),
+        phone: formData.customerPhone.trim(),
+        address: formData.customerAddress.trim(),
+        eventDate,
+        returnDate,
+        items: itemsWithDetails,
+        totalAmount: parseFloat(totalAmount.toFixed(2)),
         status: 'upcoming',
         paidAmount: 0
       };
-      
+
+      // Log the data being sent
+      console.log('Order data being sent:', JSON.stringify(orderData, null, 2));
+
+      // Additional validation
+      if (!orderData.customerName) {
+        toast.error('Customer name is required');
+        return;
+      }
+      if (!orderData.phone) {
+        toast.error('Phone number is required');
+        return;
+      }
+      if (!orderData.address) {
+        toast.error('Address is required');
+        return;
+      }
+      if (!orderData.eventDate) {
+        toast.error('Event date is required');
+        return;
+      }
+      if (!orderData.returnDate) {
+        toast.error('Return date is required');
+        return;
+      }
+      if (!orderData.items || orderData.items.length === 0) {
+        toast.error('At least one item is required');
+        return;
+      }
+      if (typeof orderData.totalAmount !== 'number' || orderData.totalAmount <= 0) {
+        toast.error('Total amount must be greater than 0');
+        return;
+      }
+
+      // Validate each item
+      for (const item of orderData.items) {
+        if (!item.item) {
+          toast.error('Item reference is required for all items');
+          return;
+        }
+        if (!item.itemName) {
+          toast.error('Item name is required for all items');
+          return;
+        }
+        if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+          toast.error('Valid quantity is required for all items');
+          return;
+        }
+        if (typeof item.rate !== 'number' || item.rate <= 0) {
+          toast.error('Valid rate is required for all items');
+          return;
+        }
+      }
+
       const newOrder = await addOrder(orderData);
       setOrders(prev => [...prev, newOrder]);
       toast.success('Order added successfully');
@@ -157,7 +375,7 @@ const Orders = () => {
       resetForm();
     } catch (error) {
       console.error('Error adding order:', error);
-      toast.error('Failed to add order');
+      toast.error(error.message || 'Failed to add order. Please check all fields and try again.');
     }
   };
 
@@ -165,6 +383,7 @@ const Orders = () => {
     setFormData({
       customerName: '',
       customerPhone: '',
+      customerAddress: '',
       eventDate: '',
       returnDate: '',
       totalAmount: 0
@@ -209,174 +428,90 @@ const Orders = () => {
     setIsViewDialogOpen(true);
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  const filteredOrders = orders.filter(order => order.status === activeTab);
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Orders Management</h1>
-        {isAdmin() && (
-          <Button 
-            onClick={() => setIsAddDialogOpen(true)}
-            className="bg-primary hover:bg-primary-hover"
-          >
-            <Plus size={18} className="mr-2" />
-            Add Order
-          </Button>
-        )}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Orders</h1>
+        <Button onClick={() => setIsAddDialogOpen(true)}>
+          Add New Order
+        </Button>
       </div>
 
-      <Tabs 
-        defaultValue="upcoming" 
-        value={activeTab} 
-        onValueChange={setActiveTab}
-        className="mb-6"
-      >
-        <TabsList className="grid grid-cols-3 mb-8">
-          <TabsTrigger value="upcoming" className="flex items-center gap-2">
-            <Calendar size={16} />
-            <span>Upcoming</span>
-          </TabsTrigger>
-          <TabsTrigger value="pending" className="flex items-center gap-2">
-            <ClipboardList size={16} />
-            <span>Pending</span>
-          </TabsTrigger>
-          <TabsTrigger value="completed" className="flex items-center gap-2">
-            <CheckCircle size={16} />
-            <span>Completed</span>
-          </TabsTrigger>
-        </TabsList>
-        
-        {['upcoming', 'pending', 'completed'].map((status) => (
-          <TabsContent key={status} value={status}>
-            {filteredOrders.length > 0 ? (
-              <div className="space-y-4">
-                {filteredOrders.map((order) => (
-                  <Card key={order._id} className="overflow-hidden">
-                    <CardHeader className="pb-3">
-                      <div className="flex justify-between items-center">
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          {['all', 'upcoming', 'pending', 'completed'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`${
+                activeTab === tab
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize`}
+            >
+              {tab}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Orders List */}
+      <div className="bg-white shadow overflow-hidden sm:rounded-md">
+        <ul className="divide-y divide-gray-200">
+          {filteredOrders.length === 0 ? (
+            <li className="px-6 py-4 text-center text-gray-500">
+              No orders found
+            </li>
+          ) : (
+            filteredOrders.map((order) => (
+              <li key={order._id} className="px-6 py-4">
+                <div 
+                  className="flex items-center justify-between cursor-pointer"
+                  onClick={() => viewOrderDetails(order)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-indigo-600 truncate">
+                        Order #{order.orderNumber || order._id.slice(-4)}
+                      </p>
+                      {renderStatusBadge(order.status)}
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-sm text-gray-900">
+                        {order.customerName || 'N/A'}
+                      </p>
+                      <div className="flex items-center space-x-4 text-sm text-gray-500">
                         <div>
-                          <CardTitle className="text-lg">
-                            {order.customerName}
-                          </CardTitle>
-                          <p className="text-sm text-gray-500">
-                            Order #{order.orderNumber} | Phone: {order.customerPhone}
-                          </p>
+                          <span className="font-medium">Event:</span> {formatDate(order.eventDate)}
                         </div>
-                        <div className="flex gap-2">
-                          <Button 
-                            variant="outline"
-                            onClick={() => viewOrderDetails(order)}
-                          >
-                            View Details
-                          </Button>
-                          {isAdmin() && status === 'upcoming' && (
-                            <Button
-                              variant="outline"
-                              className="border-orange-500 text-orange-500 hover:bg-orange-50"
-                              onClick={() => handleStatusChange(order, 'pending')}
-                            >
-                              Mark as Pending
-                            </Button>
-                          )}
-                          {isAdmin() && status === 'pending' && (
-                            <Button
-                              variant="outline"
-                              className="border-green-500 text-green-500 hover:bg-green-50"
-                              onClick={() => handleStatusChange(order, 'completed')}
-                            >
-                              Mark as Completed
-                            </Button>
-                          )}
-                          {isAdmin() && status === 'completed' && (
-                            <Button
-                              onClick={() => handleGenerateInvoice(order)}
-                              className="bg-secondary hover:bg-secondary-hover flex items-center gap-2"
-                            >
-                              <FileText size={16} />
-                              Generate Invoice
-                            </Button>
-                          )}
+                        <div>
+                          <span className="font-medium">Return:</span> {formatDate(order.returnDate)}
                         </div>
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                          <p className="text-sm text-gray-500">Event Date</p>
-                          <p>{formatDate(order.eventDate)}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Return Date</p>
-                          <p>{formatDate(order.returnDate)}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Total Items</p>
-                          <p>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Amount</p>
-                          <p className="font-medium">₹{order.totalAmount}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 bg-white rounded-lg shadow-sm">
-                {status === 'upcoming' && (
-                  <>
-                    <Calendar size={48} className="mx-auto text-gray-300 mb-3" />
-                    <h3 className="text-lg font-medium text-gray-500 mb-1">No upcoming orders</h3>
-                  </>
-                )}
-                {status === 'pending' && (
-                  <>
-                    <ClipboardList size={48} className="mx-auto text-gray-300 mb-3" />
-                    <h3 className="text-lg font-medium text-gray-500 mb-1">No pending orders</h3>
-                  </>
-                )}
-                {status === 'completed' && (
-                  <>
-                    <CheckCircle size={48} className="mx-auto text-gray-300 mb-3" />
-                    <h3 className="text-lg font-medium text-gray-500 mb-1">No completed orders</h3>
-                  </>
-                )}
-                <p className="text-gray-400 mb-4">
-                  Orders with status '{status}' will appear here.
-                </p>
-                {isAdmin() && status === 'upcoming' && (
-                  <Button 
-                    onClick={() => setIsAddDialogOpen(true)}
-                    className="bg-primary hover:bg-primary-hover"
-                  >
-                    <Plus size={18} className="mr-2" />
-                    Create New Order
-                  </Button>
-                )}
-              </div>
-            )}
-          </TabsContent>
-        ))}
-      </Tabs>
+                    </div>
+                  </div>
+                  <div className="ml-4 flex-shrink-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      {formatCurrency(order.totalAmount)}
+                    </p>
+                    <ChevronDown className="h-5 w-5 text-gray-400" />
+                  </div>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
+      </div>
 
       {/* Add Order Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -389,6 +524,7 @@ const Orders = () => {
           </DialogHeader>
           <form onSubmit={handleAddSubmit}>
             <div className="grid gap-4 py-4">
+              {/* Customer Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label htmlFor="customerName" className="text-sm font-medium">Customer Name *</label>
@@ -412,6 +548,20 @@ const Orders = () => {
                 </div>
               </div>
               
+              {/* Customer Address */}
+              <div className="space-y-2">
+                <label htmlFor="customerAddress" className="text-sm font-medium">Address *</label>
+                <Textarea
+                  id="customerAddress"
+                  name="customerAddress"
+                  value={formData.customerAddress}
+                  onChange={handleChange}
+                  required
+                  placeholder="Enter customer's full address"
+                />
+              </div>
+              
+              {/* Event Dates */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label htmlFor="eventDate" className="text-sm font-medium">Event Date *</label>
@@ -467,7 +617,7 @@ const Orders = () => {
                           <SelectContent>
                             {inventory.map((invItem) => (
                               <SelectItem key={invItem._id} value={invItem._id}>
-                                {invItem.name} ({invItem.nameGujarati})
+                                {invItem.name} ({invItem.nameGujarati}) - ₹{invItem.price}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -548,7 +698,7 @@ const Orders = () => {
                 </div>
                 <div>
                   <span className="block text-sm text-gray-500">Phone</span>
-                  <span className="font-medium">{currentOrder.customerPhone}</span>
+                  <span className="font-medium">{currentOrder.phone}</span>
                 </div>
                 <div>
                   <span className="block text-sm text-gray-500">Event Date</span>
@@ -560,21 +710,11 @@ const Orders = () => {
                 </div>
                 <div>
                   <span className="block text-sm text-gray-500">Status</span>
-                  <span className={`inline-block px-2 py-1 rounded-full text-xs ${
-                    currentOrder.status === 'completed'
-                      ? 'bg-green-100 text-green-800'
-                      : currentOrder.status === 'pending'
-                      ? 'bg-orange-100 text-orange-800'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {currentOrder.status}
-                  </span>
+                  {renderStatusBadge(currentOrder.status)}
                 </div>
                 <div>
-                  <span className="block text-sm text-gray-500">Created By</span>
-                  <span className="font-medium">
-                    {currentOrder.createdBy?.username || 'System'}
-                  </span>
+                  <span className="block text-sm text-gray-500">Created At</span>
+                  <span className="font-medium">{formatDate(currentOrder.createdAt)}</span>
                 </div>
               </div>
               
@@ -603,7 +743,7 @@ const Orders = () => {
                         <tr key={idx}>
                           <td className="px-4 py-2 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
-                              {item.item.name} ({item.item.nameGujarati})
+                              {item.itemName} ({item.itemNameGujarati})
                             </div>
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">

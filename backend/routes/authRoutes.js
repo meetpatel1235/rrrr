@@ -6,7 +6,8 @@ const router = express.Router();
 
 router.post('/register', async (req, res) => {
   try {
-    // Destructure data from the request body
+    console.log('Registration request received:', req.body);
+    
     const { name, email, password, role } = req.body;
 
     // Check if the email already exists
@@ -22,69 +23,87 @@ router.post('/register', async (req, res) => {
     const user = new User({
       name,
       email,
-      password: hashedPassword,  // Store the hashed password
-      role,  // Store the role ('admin' or 'worker')
+      password: hashedPassword,
+      role: role || 'worker' // Default to worker if no role specified
     });
 
     // Save the user to the database
     await user.save();
+    console.log('User created successfully:', { id: user._id, email: user.email, role: user.role });
 
     // Create a JWT token
-    const token = jwt.sign({ userId: user._id }, 'your_jwt_secret_key', { expiresIn: '1h' });
+    const token = jwt.sign(
+      { 
+        userId: user._id,
+        role: user.role 
+      }, 
+      process.env.JWT_SECRET || 'your_jwt_secret_key', 
+      { expiresIn: '1d' }
+    );
 
     // Send response with success message and token
     res.status(201).json({
       message: 'Registration successful!',
-      token,  // Send the token to the client
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Something went wrong' });
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Something went wrong', error: error.message });
   }
 });
 
 // Login Route
 router.post('/login', async (req, res) => {
-  const { email, password, role } = req.body; // role will come from frontend if needed
-
   try {
+    console.log('Login request received:', req.body);
+    
+    const { email, password } = req.body;
+
     // Find the user by email
     const user = await User.findOne({ email });
     
     if (!user) {
-      return res.status(400).json({ message: 'User not found' });
+      return res.status(400).json({ message: 'Invalid email or password' });
     }
 
     // Check if the password is correct
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ message: 'Invalid email or password' });
     }
 
-    // Check if the role matches (optional, not typical for login)
-    if (role && user.role !== role) {
-      return res.status(400).json({ message: 'Role mismatch' });
-    }
-
-    // Generate JWT Token (You may want to include user info here as well)
+    // Generate JWT Token
     const token = jwt.sign(
-      { userId: user._id, role: user.role }, // Include the role in the token for role-based access control
-      'your_secret_key', // Replace with your actual secret key
-      { expiresIn: '1h' }
+      { 
+        userId: user._id,
+        role: user.role 
+      },
+      process.env.JWT_SECRET || 'your_jwt_secret_key',
+      { expiresIn: '1d' }
     );
+
+    console.log('Login successful:', { id: user._id, email: user.email, role: user.role });
 
     res.json({
       message: 'Login successful',
-      token: token,
-      role: user.role // You can also return the role in the response if needed
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      }
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
-
 
 module.exports = router;

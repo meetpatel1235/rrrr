@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -26,13 +25,22 @@ import {
   Package,
   X
 } from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 const Inventory = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, getAuthHeader } = useAuth();
   const navigate = useNavigate();
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -40,10 +48,10 @@ const Inventory = () => {
   const [formData, setFormData] = useState({
     name: '',
     nameGujarati: '',
-    quantity: 0,
-    price: 0,
-    description: '',
-    image: ''
+    category: '',
+    totalQuantity: 0,
+    unit: '',
+    price: 0
   });
 
   // Redirect if not admin
@@ -55,22 +63,31 @@ const Inventory = () => {
   }, [isAdmin, navigate]);
 
   // Fetch inventory data
-  useEffect(() => {
-    const fetchInventory = async () => {
-      try {
-        setLoading(true);
-        const data = await getInventory();
-        setInventory(data);
-      } catch (error) {
-        console.error('Error fetching inventory:', error);
-        toast.error('Failed to load inventory data');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchInventory = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getInventory();
+      setInventory(data);
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+      setError(error.message);
+      toast.error('Failed to load inventory data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // Initial data fetch
+  useEffect(() => {
     fetchInventory();
   }, []);
+
+  // Filter inventory based on search query
+  const filteredInventory = inventory.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.category.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -83,21 +100,23 @@ const Inventory = () => {
   const handleAddSubmit = async (e) => {
     e.preventDefault();
     try {
+      console.log('Submitting form data:', formData);
       const newItem = await addInventoryItem(formData);
+      console.log('Server response:', newItem);
       setInventory(prev => [...prev, newItem]);
       toast.success('Item added successfully');
       setIsAddDialogOpen(false);
       setFormData({
         name: '',
         nameGujarati: '',
-        quantity: 0,
-        price: 0,
-        description: '',
-        image: ''
+        category: '',
+        totalQuantity: 0,
+        unit: '',
+        price: 0
       });
     } catch (error) {
       console.error('Error adding item:', error);
-      toast.error('Failed to add item');
+      toast.error(error.message || 'Failed to add item');
     }
   };
 
@@ -117,14 +136,27 @@ const Inventory = () => {
   };
 
   const handleDelete = async () => {
+    if (!currentItem?._id) {
+      toast.error('Invalid item selected for deletion');
+      return;
+    }
+
     try {
-      await deleteInventoryItem(currentItem._id);
-      setInventory(prev => prev.filter(item => item._id !== currentItem._id));
-      toast.success('Item deleted successfully');
-      setIsDeleteDialogOpen(false);
+      console.log('Attempting to delete item with ID:', currentItem._id);
+      const response = await deleteInventoryItem(currentItem._id);
+      console.log('Delete response:', response);
+      
+      if (response.success) {
+        setInventory(prev => prev.filter(item => item._id !== currentItem._id));
+        toast.success('Item deleted successfully');
+        setIsDeleteDialogOpen(false);
+        setCurrentItem(null);
+      } else {
+        throw new Error(response.message || 'Failed to delete item');
+      }
     } catch (error) {
       console.error('Error deleting item:', error);
-      toast.error('Failed to delete item');
+      toast.error(error.message || 'Failed to delete item. Please try again.');
     }
   };
 
@@ -133,24 +165,22 @@ const Inventory = () => {
     setFormData({
       name: item.name,
       nameGujarati: item.nameGujarati,
-      quantity: item.quantity,
-      price: item.price,
-      description: item.description || '',
-      image: item.image || ''
+      category: item.category,
+      totalQuantity: item.totalQuantity,
+      unit: item.unit,
+      price: item.price
     });
     setIsEditDialogOpen(true);
   };
 
   const openDeleteDialog = (item) => {
+    if (!item?._id) {
+      toast.error('Invalid item selected');
+      return;
+    }
     setCurrentItem(item);
     setIsDeleteDialogOpen(true);
   };
-
-  const filteredInventory = inventory.filter(item =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.nameGujarati.includes(searchTerm) ||
-    item.description?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   if (loading) {
     return (
@@ -160,126 +190,100 @@ const Inventory = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-500 mb-4">{error}</p>
+        <Button onClick={fetchInventory} variant="outline">
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Inventory Management</h1>
         <Button 
           onClick={() => {
             setFormData({
               name: '',
               nameGujarati: '',
-              quantity: 0,
-              price: 0,
-              description: '',
-              image: ''
+              category: '',
+              totalQuantity: 0,
+              unit: '',
+              price: 0
             });
             setIsAddDialogOpen(true);
           }}
           className="bg-primary hover:bg-primary-hover"
         >
-          <Plus size={18} className="mr-2" />
-          Add Item
+          <Plus className="mr-2 h-4 w-4" />
+          Add New Item
         </Button>
       </div>
 
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <div className="flex items-center space-x-2">
-            <Search size={18} className="text-gray-400" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Inventory Items</CardTitle>
+          <div className="relative mt-4">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search inventory..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="border-none focus:ring-0 pl-0"
+              placeholder="Search items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
             />
-            {searchTerm && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setSearchTerm('')}
-                className="hover:bg-transparent"
-              >
-                <X size={16} />
-              </Button>
-            )}
           </div>
         </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Quantity</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead>Price</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredInventory.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8">
+                    <div className="flex flex-col items-center text-gray-500">
+                      <Package className="h-12 w-12 mb-2" />
+                      <p>No inventory items found</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredInventory.map((item) => (
+                  <TableRow key={item._id}>
+                    <TableCell>{item.name}</TableCell>
+                    <TableCell>{item.category}</TableCell>
+                    <TableCell>{item.quantity}</TableCell>
+                    <TableCell>{item.unit}</TableCell>
+                    <TableCell>₹{item.price}</TableCell>
+                    <TableCell>
+                      <div className="flex space-x-2">
+                        <Button variant="outline" size="sm" onClick={() => openEditDialog(item)}>
+                          Edit
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(item)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
       </Card>
-
-      {filteredInventory.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredInventory.map((item) => (
-            <Card key={item._id} className="overflow-hidden">
-              <div className="p-4 flex justify-between items-start">
-                <div className="flex items-center space-x-3">
-                  <div className="bg-primary-light p-2 rounded-full">
-                    <Package size={20} className="text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium">{item.name}</h3>
-                    <p className="text-gray-500 text-sm">{item.nameGujarati}</p>
-                  </div>
-                </div>
-                <div className="flex space-x-2">
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => openEditDialog(item)}
-                    className="hover:bg-primary-light hover:text-primary"
-                  >
-                    <Edit size={16} />
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => openDeleteDialog(item)}
-                    className="hover:bg-red-100 hover:text-red-500"
-                  >
-                    <Trash size={16} />
-                  </Button>
-                </div>
-              </div>
-              <CardContent className="pt-0">
-                <div className="flex justify-between text-sm border-t pt-4 mt-2">
-                  <span className="text-gray-500">Quantity:</span>
-                  <span className="font-medium">{item.quantity}</span>
-                </div>
-                <div className="flex justify-between text-sm border-t pt-2 mt-2">
-                  <span className="text-gray-500">Price:</span>
-                  <span className="font-medium">₹{item.price}</span>
-                </div>
-                {item.description && (
-                  <div className="border-t pt-2 mt-2">
-                    <span className="text-xs text-gray-500">Description:</span>
-                    <p className="text-sm mt-1">{item.description}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-12">
-          <Package size={48} className="mx-auto text-gray-300 mb-3" />
-          <h3 className="text-lg font-medium text-gray-500 mb-1">No items found</h3>
-          <p className="text-gray-400 mb-4">
-            {inventory.length === 0
-              ? "You haven't added any inventory items yet."
-              : "No items match your search criteria."
-            }
-          </p>
-          {inventory.length === 0 && (
-            <Button 
-              onClick={() => setIsAddDialogOpen(true)}
-              className="bg-primary hover:bg-primary-hover"
-            >
-              <Plus size={18} className="mr-2" />
-              Add First Item
-            </Button>
-          )}
-        </div>
-      )}
 
       {/* Add Item Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -292,75 +296,69 @@ const Inventory = () => {
           </DialogHeader>
           <form onSubmit={handleAddSubmit}>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <label htmlFor="name" className="text-sm font-medium">Name (English) *</label>
+                  <label htmlFor="name" className="text-sm font-medium">Name (English)</label>
                   <Input
                     id="name"
                     name="name"
                     value={formData.name}
                     onChange={handleChange}
-                    required
+                    placeholder="Enter item name in English"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="nameGujarati" className="text-sm font-medium">Name (ગુજરાતી) *</label>
+                  <label htmlFor="nameGujarati" className="text-sm font-medium">Name (Gujarati)</label>
                   <Input
                     id="nameGujarati"
                     name="nameGujarati"
                     value={formData.nameGujarati}
                     onChange={handleChange}
-                    required
+                    placeholder="Enter item name in Gujarati"
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label htmlFor="quantity" className="text-sm font-medium">Quantity *</label>
+                  <label htmlFor="category" className="text-sm font-medium">Category</label>
                   <Input
-                    id="quantity"
-                    name="quantity"
-                    type="number"
-                    min="0"
-                    value={formData.quantity}
+                    id="category"
+                    name="category"
+                    value={formData.category}
                     onChange={handleChange}
-                    required
+                    placeholder="Enter item category"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="price" className="text-sm font-medium">Price (₹) *</label>
+                  <label htmlFor="totalQuantity" className="text-sm font-medium">Quantity</label>
+                  <Input
+                    id="totalQuantity"
+                    name="totalQuantity"
+                    type="number"
+                    value={formData.totalQuantity}
+                    onChange={handleChange}
+                    placeholder="Enter quantity"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="unit" className="text-sm font-medium">Unit</label>
+                  <Input
+                    id="unit"
+                    name="unit"
+                    value={formData.unit}
+                    onChange={handleChange}
+                    placeholder="Enter unit (e.g., pieces, kg)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="price" className="text-sm font-medium">Price</label>
                   <Input
                     id="price"
                     name="price"
                     type="number"
-                    min="0"
-                    step="0.01"
                     value={formData.price}
                     onChange={handleChange}
-                    required
+                    placeholder="Enter price"
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="description" className="text-sm font-medium">Description</label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleChange}
-                  rows={3}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="image" className="text-sm font-medium">Image URL</label>
-                <Input
-                  id="image"
-                  name="image"
-                  type="url"
-                  value={formData.image}
-                  onChange={handleChange}
-                  placeholder="https://example.com/image.jpg"
-                />
               </div>
             </div>
             <DialogFooter>
@@ -443,17 +441,6 @@ const Inventory = () => {
                   value={formData.description}
                   onChange={handleChange}
                   rows={3}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="edit-image" className="text-sm font-medium">Image URL</label>
-                <Input
-                  id="edit-image"
-                  name="image"
-                  type="url"
-                  value={formData.image}
-                  onChange={handleChange}
-                  placeholder="https://example.com/image.jpg"
                 />
               </div>
             </div>

@@ -8,21 +8,29 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Mail, Lock } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState('admin'); // default role
   const [formData, setFormData] = useState({
     email: '',
     password: '',
+    role: 'worker' // Default role
   });
 
   const handleChange = (e) => {
     setFormData(prev => ({
       ...prev,
       [e.target.name]: e.target.value,
+    }));
+  };
+
+  const handleRoleChange = (value) => {
+    setFormData(prev => ({
+      ...prev,
+      role: value
     }));
   };
 
@@ -34,30 +42,47 @@ const Login = () => {
       const response = await fetch('http://localhost:5000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, role }),
+        body: JSON.stringify(formData),
       });
 
       const data = await response.json();
+      console.log('Server response:', data);
 
       if (response.ok) {
-        if (data.role !== role) {
-          throw new Error("Role mismatch. Please try again.");
+        if (!data.token) {
+          throw new Error("Server response missing authentication token");
         }
 
+        const userData = {
+          id: data.userId,
+          email: formData.email,
+          role: data.role || formData.role // Use server role or fallback to form role
+        };
+
+        // Store auth data
         localStorage.setItem('token', data.token);
-        localStorage.setItem('role', data.role);
+        localStorage.setItem('user', JSON.stringify(userData));
 
-        toast({ title: "Success", description: "Login successful!" });
-        navigate('/dashboard'); // ✅ OK
-
+        // Show success message
+        toast({ 
+          title: "Success", 
+          description: "Login successful! Redirecting to dashboard..." 
+        });
+        
+        // Force a small delay to ensure localStorage is updated
+        setTimeout(() => {
+          // Navigate to dashboard
+          window.location.href = '/dashboard';
+        }, 100);
       } else {
-        throw new Error(data.message || 'Login failed');
+        throw new Error(data.message || 'Login failed. Please check your credentials.');
       }
     } catch (error) {
+      console.error('Login error:', error);
       toast({
         variant: "destructive",
-        title: "Error",
-        description: error.message || "Something went wrong",
+        title: "Login Failed",
+        description: error.message || "Something went wrong. Please try again.",
       });
     } finally {
       setLoading(false);
@@ -113,6 +138,19 @@ const Login = () => {
                     disabled={loading}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="role">Role</Label>
+                <Select value={formData.role} onValueChange={handleRoleChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="worker">Worker</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
 

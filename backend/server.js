@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const auth = require('./middleware/auth');
 
 const inventoryRoutes = require("./routes/inventory");
 const authRoutes = require('./routes/authRoutes');
@@ -39,8 +40,10 @@ async function createAdminIfNotExists() {
     const existingAdmin = await User.findOne({ email: "admin@rasoi.com" });
     if (!existingAdmin) {
       const newAdmin = new User({
+        name: "Admin User",
         email: "admin@rasoi.com",
-        password: "admin123" // 🔒 Suggest using env variable or strong password
+        password: "admin123",
+        role: "admin"
       });
       await newAdmin.save();
       console.log("✅ Default admin created: admin@rasoi.com / admin123");
@@ -51,3 +54,12 @@ async function createAdminIfNotExists() {
     console.error("❌ Error creating admin user:", err);
   }
 }
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ 
+    message: 'Internal Server Error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
