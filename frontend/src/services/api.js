@@ -1,5 +1,5 @@
 // Get base URL - use relative path for production
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://madhuramdecobackend.onrender.com/api';
 
 // Get auth header
 const getAuthHeader = () => {
