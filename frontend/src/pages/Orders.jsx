@@ -229,20 +229,14 @@ const Orders = () => {
     }));
   };
 
+  const getStartOfDay = (date) => {
+    const newDate = new Date(date);
+    newDate.setHours(0, 0, 0, 0);
+    return newDate;
+  };
+
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-
-    // Validate items
-    if (orderItems.some(item => !item.item)) {
-      toast.error('Please select all items');
-      return;
-    }
-
-    // Validate dates
-    if (!formData.eventDate || !formData.returnDate) {
-      toast.error('Please select both event and return dates');
-      return;
-    }
 
     // Validate customer information
     if (!formData.customerName || !formData.customerPhone || !formData.customerAddress) {
@@ -257,17 +251,32 @@ const Orders = () => {
       return;
     }
 
-    try {
-      // Format dates to ISO string
-      const eventDate = new Date(formData.eventDate).toISOString();
-      const returnDate = new Date(formData.returnDate).toISOString();
+    // Validate dates
+    if (!formData.eventDate || !formData.returnDate) {
+      toast.error('Please select both event and return dates');
+      return;
+    }
 
-      // Validate date logic
-      if (new Date(eventDate) < new Date()) {
+    try {
+      // Get current date (start of day)
+      const today = getStartOfDay(new Date());
+      
+      // Format and validate event date
+      const eventDate = new Date(formData.eventDate);
+      const eventDateStart = getStartOfDay(eventDate);
+      
+      // Format and validate return date
+      const returnDate = new Date(formData.returnDate);
+      const returnDateStart = getStartOfDay(returnDate);
+
+      // Validate event date is not in the past
+      if (eventDateStart < today) {
         toast.error('Event date cannot be in the past');
         return;
       }
-      if (new Date(returnDate) < new Date(eventDate)) {
+
+      // Validate return date is not before event date
+      if (returnDateStart < eventDateStart) {
         toast.error('Return date must be after event date');
         return;
       }
@@ -277,9 +286,6 @@ const Orders = () => {
         const inventoryItem = inventory.find(inv => inv._id === item.item);
         if (!inventoryItem) {
           throw new Error('Selected item not found in inventory');
-        }
-        if (!inventoryItem.price || inventoryItem.price <= 0) {
-          throw new Error(`Invalid price for item: ${inventoryItem.name}`);
         }
         return {
           item: item.item,
@@ -292,82 +298,23 @@ const Orders = () => {
 
       // Calculate total amount
       const totalAmount = itemsWithDetails.reduce((sum, item) => {
-        const itemTotal = item.quantity * item.rate;
-        if (isNaN(itemTotal)) {
-          throw new Error(`Invalid calculation for item: ${item.itemName}`);
-        }
-        return sum + itemTotal;
+        return sum + (item.quantity * item.rate);
       }, 0);
 
-      if (isNaN(totalAmount) || totalAmount <= 0) {
-        throw new Error('Invalid total amount calculated');
-      }
-
+      // Prepare order data with ISO string dates
       const orderData = {
         customerName: formData.customerName.trim(),
         phone: formData.customerPhone.trim(),
         address: formData.customerAddress.trim(),
-        eventDate,
-        returnDate,
+        eventDate: eventDate.toISOString(),
+        returnDate: returnDate.toISOString(),
         items: itemsWithDetails,
         totalAmount: parseFloat(totalAmount.toFixed(2)),
         status: 'upcoming',
         paidAmount: 0
       };
 
-      // Log the data being sent
-      console.log('Order data being sent:', JSON.stringify(orderData, null, 2));
-
-      // Additional validation
-      if (!orderData.customerName) {
-        toast.error('Customer name is required');
-        return;
-      }
-      if (!orderData.phone) {
-        toast.error('Phone number is required');
-        return;
-      }
-      if (!orderData.address) {
-        toast.error('Address is required');
-        return;
-      }
-      if (!orderData.eventDate) {
-        toast.error('Event date is required');
-        return;
-      }
-      if (!orderData.returnDate) {
-        toast.error('Return date is required');
-        return;
-      }
-      if (!orderData.items || orderData.items.length === 0) {
-        toast.error('At least one item is required');
-        return;
-      }
-      if (typeof orderData.totalAmount !== 'number' || orderData.totalAmount <= 0) {
-        toast.error('Total amount must be greater than 0');
-        return;
-      }
-
-      // Validate each item
-      for (const item of orderData.items) {
-        if (!item.item) {
-          toast.error('Item reference is required for all items');
-          return;
-        }
-        if (!item.itemName) {
-          toast.error('Item name is required for all items');
-          return;
-        }
-        if (typeof item.quantity !== 'number' || item.quantity <= 0) {
-          toast.error('Valid quantity is required for all items');
-          return;
-        }
-        if (typeof item.rate !== 'number' || item.rate <= 0) {
-          toast.error('Valid rate is required for all items');
-          return;
-        }
-      }
-
+      // Create the order
       const newOrder = await addOrder(orderData);
       setOrders(prev => [...prev, newOrder]);
       toast.success('Order added successfully');
@@ -523,32 +470,35 @@ const Orders = () => {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddSubmit}>
-            <div className="grid gap-4 py-4">
-              {/* Customer Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="customerName" className="text-sm font-medium">Customer Name *</label>
-                  <Input
-                    id="customerName"
-                    name="customerName"
-                    value={formData.customerName}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="customerPhone" className="text-sm font-medium">Phone Number *</label>
-                  <Input
-                    id="customerPhone"
-                    name="customerPhone"
-                    value={formData.customerPhone}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
+            <div className="space-y-4">
+              {/* Customer Name */}
+              <div className="space-y-2">
+                <label htmlFor="customerName" className="text-sm font-medium">Customer Name *</label>
+                <Input
+                  id="customerName"
+                  name="customerName"
+                  value={formData.customerName}
+                  onChange={handleChange}
+                  required
+                  placeholder="Enter customer's full name"
+                />
               </div>
-              
-              {/* Customer Address */}
+
+              {/* Phone Number */}
+              <div className="space-y-2">
+                <label htmlFor="customerPhone" className="text-sm font-medium">Phone Number *</label>
+                <Input
+                  id="customerPhone"
+                  name="customerPhone"
+                  value={formData.customerPhone}
+                  onChange={handleChange}
+                  required
+                  placeholder="Enter 10-digit phone number"
+                  pattern="[0-9]{10}"
+                />
+              </div>
+
+              {/* Address */}
               <div className="space-y-2">
                 <label htmlFor="customerAddress" className="text-sm font-medium">Address *</label>
                 <Textarea
@@ -560,7 +510,7 @@ const Orders = () => {
                   placeholder="Enter customer's full address"
                 />
               </div>
-              
+
               {/* Event Dates */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -571,6 +521,7 @@ const Orders = () => {
                     type="date"
                     value={formData.eventDate}
                     onChange={handleChange}
+                    min={new Date().toISOString().split('T')[0]}
                     required
                   />
                 </div>
@@ -582,6 +533,7 @@ const Orders = () => {
                     type="date"
                     value={formData.returnDate}
                     onChange={handleChange}
+                    min={formData.eventDate || new Date().toISOString().split('T')[0]}
                     required
                   />
                 </div>
